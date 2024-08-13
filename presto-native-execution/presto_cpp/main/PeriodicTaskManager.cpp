@@ -18,7 +18,6 @@
 #include "presto_cpp/main/PrestoExchangeSource.h"
 #include "presto_cpp/main/PrestoServer.h"
 #include "presto_cpp/main/common/Counters.h"
-#include "presto_cpp/main/http/HttpClient.h"
 #include "presto_cpp/main/http/filters/HttpEndpointLatencyFilter.h"
 #include "velox/common/base/PeriodicStatsReporter.h"
 #include "velox/common/base/StatsReporter.h"
@@ -210,6 +209,8 @@ void PeriodicTaskManager::updateTaskStats() {
   auto taskNumbers = taskManager_->getTaskNumbers(numTasks);
   RECORD_METRIC_VALUE(kCounterNumTasks, taskManager_->getNumTasks());
   RECORD_METRIC_VALUE(
+      kCounterNumTasksBytesProcessed, taskManager_->getBytesProcessed());
+  RECORD_METRIC_VALUE(
       kCounterNumTasksRunning, taskNumbers[velox::exec::TaskState::kRunning]);
   RECORD_METRIC_VALUE(
       kCounterNumTasksFinished, taskNumbers[velox::exec::TaskState::kFinished]);
@@ -284,25 +285,25 @@ class HiveConnectorStatsReporter {
       std::shared_ptr<velox::connector::hive::HiveConnector> connector)
       : connector_(std::move(connector)),
         numElementsMetricName_(fmt::format(
-            kCounterHiveFileHandleCacheNumElementsFormat,
+            kCounterHiveFileHandleCacheNumElementsFormat.toString(),
             connector_->connectorId())),
         pinnedSizeMetricName_(fmt::format(
-            kCounterHiveFileHandleCachePinnedSizeFormat,
+            kCounterHiveFileHandleCachePinnedSizeFormat.toString(),
             connector_->connectorId())),
         curSizeMetricName_(fmt::format(
-            kCounterHiveFileHandleCacheCurSizeFormat,
+            kCounterHiveFileHandleCacheCurSizeFormat.toString(),
             connector_->connectorId())),
         numAccumulativeHitsMetricName_(fmt::format(
-            kCounterHiveFileHandleCacheNumAccumulativeHitsFormat,
+            kCounterHiveFileHandleCacheNumAccumulativeHitsFormat.toString(),
             connector_->connectorId())),
         numAccumulativeLookupsMetricName_(fmt::format(
-            kCounterHiveFileHandleCacheNumAccumulativeLookupsFormat,
+            kCounterHiveFileHandleCacheNumAccumulativeLookupsFormat.toString(),
             connector_->connectorId())),
         numHitsMetricName_(fmt::format(
-            kCounterHiveFileHandleCacheNumHitsFormat,
+            kCounterHiveFileHandleCacheNumHitsFormat.toString(),
             connector_->connectorId())),
         numLookupsMetricName_(fmt::format(
-            kCounterHiveFileHandleCacheNumLookupsFormat,
+            kCounterHiveFileHandleCacheNumLookupsFormat.toString(),
             connector_->connectorId())) {
     DEFINE_METRIC(numElementsMetricName_, velox::StatType::AVG);
     DEFINE_METRIC(pinnedSizeMetricName_, velox::StatType::AVG);

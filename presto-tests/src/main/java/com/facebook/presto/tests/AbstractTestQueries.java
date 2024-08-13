@@ -120,6 +120,7 @@ import static com.facebook.presto.tests.QueryTemplate.parameter;
 import static com.facebook.presto.tests.QueryTemplate.queryTemplate;
 import static com.facebook.presto.tests.StatefulSleepingSum.STATEFUL_SLEEPING_SUM;
 import static com.facebook.presto.tests.StructuralTestUtil.mapType;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.getOnlyElement;
 import static com.google.common.collect.Iterables.transform;
 import static java.lang.String.format;
@@ -6827,6 +6828,85 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testArraySum()
+    {
+        // bigint cases
+        String sql = "select array_sum(k) from (values " +
+                "(array[cast(10 as bigint), 20, 30]), " +
+                "(array[cast(40 as bigint), 60]), " +
+                "(array[cast(100 as bigint), 200]), " +
+                "(array[cast(1 as bigint), 2, 3, 4]), " +
+                "(array[cast(-10 as bigint), -20]), " +
+                "(array[cast(800 as bigint), 200]), " +
+                "(array[cast(300 as bigint), 700, 1000]), " +
+                "(array[cast(-500 as bigint), 500, 0]), " +
+                "(array[cast(2147483647 as bigint), 1]), " +
+                "(array[cast(-2147483648 as bigint), 0]), " +
+                "(array[cast(null as bigint), 100, 200]), " + // null case
+                "(array[cast(50 as bigint), null, 150])) t(k)"; // null case
+        assertQuery(sql, "values cast(60 as bigint), cast(100 as bigint), cast(300 as bigint), cast(10 as bigint), cast(-30 as bigint), cast(1000 as bigint), cast(2000 as bigint), cast(0 as bigint), cast(2147483648 as bigint), cast(-2147483648 as bigint), cast(300 as bigint), cast(200 as bigint)");
+
+        // double cases
+        sql = "select array_sum(k) from (values " +
+                "(array[cast(1.5 as double), 2.5]), " +
+                "(array[cast(3.5 as double), 4.5]), " +
+                "(array[cast(0.1 as double), 0.2, 0.3]), " +
+                "(array[cast(-1.5 as double), -2.5]), " +
+                "(array[cast(10.5 as double), 20.5]), " +
+                "(array[cast(3.3 as double), 6.7]), " +
+                "(array[cast(4.4 as double), 5.6, 10.0]), " +
+                "(array[cast(-2.2 as double), 2.2]), " +
+                "(array[cast(1e308 as double), -1e308]), " +
+                "(array[cast(0.0000001 as double), 0.0000002]), " +
+                "(array[cast(null as double), 1.1, 2.2]), " + // null case
+                "(array[cast(0.5 as double), null, 1.5])) t(k)"; // null case
+        assertQuery(sql, "values cast(4.0 as double), cast(8.0 as double), cast(0.6 as double), cast(-4.0 as double), cast(31.0 as double), cast(10.0 as double), cast(20.0 as double), cast(0.0 as double), cast(0.0 as double), cast(0.0000003 as double), cast(3.3 as double), cast(2.0 as double)");
+    }
+
+    @Test
+    public void testArraySplitIntoChunks()
+    {
+        String sql = "select array_split_into_chunks(array[1, 2, 3, 4, 5, 6], 2)";
+        assertQuery(sql, "values array[array[1, 2], array[3, 4], array[5, 6]]");
+
+        sql = "select array_split_into_chunks(array[1, 2, 3, 4, 5], 3)";
+        assertQuery(sql, "values array[array[1, 2, 3], array[4, 5]]");
+
+        sql = "select array_split_into_chunks(array[1, 2, 3], 5)";
+        assertQuery(sql, "values array[array[1, 2, 3]]");
+
+        sql = "select array_split_into_chunks(null, 2)";
+        assertQuery(sql, "values null");
+
+        sql = "select array_split_into_chunks(array[1, 2, 3], 0)";
+        assertQueryFails(sql, "Invalid slice size: 0. Size must be greater than zero.");
+
+        sql = "select array_split_into_chunks(array[1, 2, 3], -1)";
+        assertQueryFails(sql, "Invalid slice size: -1. Size must be greater than zero.");
+
+        sql = "select array_split_into_chunks(array[1, null, 3, null, 5], 2)";
+        assertQuery(sql, "values array[array[1, null], array[3, null], array[5]]");
+
+        sql = "select array_split_into_chunks(array['a', 'b', 'c', 'd'], 2)";
+        assertQuery(sql, "values array[array['a', 'b'], array['c', 'd']]");
+
+        sql = "select array_split_into_chunks(array[1.1, 2.2, 3.3, 4.4, 5.5], 2)";
+        assertQuery(sql, "values array[array[1.1, 2.2], array[3.3, 4.4], array[5.5]]");
+
+        sql = "select array_split_into_chunks(array[null, null, null], 0)";
+        assertQueryFails(sql, "Invalid slice size: 0. Size must be greater than zero.");
+
+        sql = "select array_split_into_chunks(array[null, null, null], 2)";
+        assertQuery(sql, "values array[array[null, null], array[null]]");
+
+        sql = "select array_split_into_chunks(array[null, 1, 2], 5)";
+        assertQuery(sql, "values array[array[null, 1, 2]]");
+
+        sql = "select array_split_into_chunks(array[], 0)";
+        assertQueryFails(sql, "Invalid slice size: 0. Size must be greater than zero.");
+    }
+
+    @Test
     public void testArrayCumSum()
     {
         // int
@@ -7453,6 +7533,30 @@ public abstract class AbstractTestQueries
     }
 
     @Test
+    public void testPreserveAssignmentsInJoin()
+    {
+        // The following two timestamps represent the same point in time but with different time zones
+        String timestampLosAngeles = "2001-08-22 03:04:05.321 America/Los_Angeles";
+        String timestampNewYork = "2001-08-22 06:04:05.321 America/New_York";
+        Set<List<Object>> rows = computeActual("WITH source AS (" +
+                "SELECT * FROM (" +
+                "    VALUES" +
+                "        (TIMESTAMP '" + timestampLosAngeles + "')," +
+                "        (TIMESTAMP '" + timestampNewYork + "')" +
+                ") AS tbl (tstz)" +
+                ")" +
+                "SELECT * FROM source a JOIN source b ON a.tstz = b.tstz").getMaterializedRows().stream()
+                .map(MaterializedRow::getFields)
+                .collect(toImmutableSet());
+        assertEquals(rows,
+                ImmutableSet.of(
+                        ImmutableList.of(zonedDateTime(timestampLosAngeles), zonedDateTime(timestampLosAngeles)),
+                        ImmutableList.of(zonedDateTime(timestampLosAngeles), zonedDateTime(timestampNewYork)),
+                        ImmutableList.of(zonedDateTime(timestampNewYork), zonedDateTime(timestampLosAngeles)),
+                        ImmutableList.of(zonedDateTime(timestampNewYork), zonedDateTime(timestampNewYork))));
+    }
+
+    @Test
     public void testGenerateDomainFilters()
     {
         Session session = Session.builder(getSession())
@@ -7658,6 +7762,7 @@ public abstract class AbstractTestQueries
                 "values (2.0, 1)");
         assertQuery(enableOptimization, "WITH t(msg) AS (SELECT * FROM (VALUES ROW(CAST(ROW(1, 2.0) AS ROW(x BIGINT, y DOUBLE))))) SELECT b.msg.x FROM t a, t b WHERE a.msg.y = b.msg.y limit 100",
                 "values 1");
+        assertQuery(enableOptimization, "select orderkey, col1 from orders cross join (select cast(col as varchar) col1 from (values 1) t(col))");
     }
 
     /**
